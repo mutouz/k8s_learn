@@ -1,0 +1,981 @@
+kubeadm 创建集群的工具
+kubelet  维持docker交互环境维持生命周期
+kubectl  命令行管理工具
+
+master节点
+kubectl是Kubernetes集群的命令行工具 webui页面
+
+scheduler:调度器  调度任务任务交给apiserver交给etcd
+rc:控制器  交给apiserver创建pod删除pod
+apiserver 调度中心处理中心
+etcd:数据库存储持久化方案  可信赖的分布式键值对存储服务 v2版写入内存中  v3版卷的持久化操作 httpserver http cs服务
+
+node执行者
+kubelet: crl 容器 运行环境 接口  和docker交互创建对应容器 维持pod生命周期
+kube proxy:操作防火墙维持pod映射pod通信
+pod:启动第一个容器 pause   然后有很多容器 共享pause网络栈共享存储卷
+////////////////////////////////////////////
+控制器管理的pod 
+控制器
+rc 确保容器应用的副本数始终保持在用户定义的副本数建议用rs代替rc （rs支持集合式的selector（选择器）打标签批量操作）
+rs 和deployment一起使用（deployment支持滚动更新）
+
+hpa 扩容 仅试用deployment rs 支持pod 用户自定义的metric扩容
+
+StatefulSet解决有状态服务的问题  deployment rs 是为无状态服务设计的
+稳定的存储
+稳定的标识
+有序部署
+有序回收
+
+DamonSet （在每个pode上创建副本处理）
+运行集群存储daemon
+在每个node上运行日志收集daemon
+在每个node上监控daemon
+
+ job批处理任务保证批处理任务的一个或多个pod成功结束
+
+/////////////////////////////////////////////
+
+服务发现
+/////////////////////////
+网络模型
+扁平化网络空间
+pod之间通信Overlay Network  
+pod和service各节点的Iptables规则lvs
+flannel 网络规划服务，不同节点主机创建的docker容器具有全集群唯一虚拟ip，在ip之间建立虚拟覆盖网络（Overlay Network  ）
+通过将数据包原封不动传递到目标容器内
+
+同一服务器通过网桥
+跨主机 通过分装3层udp传输
+
+flannel 和etcd  关联 存储管理flannel可分配的ip地址段资源
+监控etcd每个pod地址，建立pod节点路由表
+
+
+命令
+kuberctl get node 获取节点
+kubectl get pod -n kube-sustem 查看组件  kube-sustem 名称空间
+kubectl get pod -n kube-sustem -o wide 查看更详细信息
+kubectl get pod -n kube-sustem -w 监听组件情况
+
+kubectl get pod 获取pod
+//指定镜像运行为pod
+//run 运行为pod
+kubectl run nginx-deployment（名称） --image（指定镜像）=nginx --replicas（开启deployment 控制）=3 --port（指定端口）=80
+//运行3个pod容器在k8s集群中
+kubectl scale --replicas=3 deployment/nginx-deployment    启动3个nginx-deployment pod 使用deployment控制器
+//创建svc（相当于nginx的反向代理所有的服务（轮询机制））
+ kubectl expose deployment nginx（nginx名称） --port=8000 --target-port=80 为nginx部署创建服务，该服务在端口80上连接并在端口8000上连接到容器。
+//使用默认编辑器编辑服务器上定义的资源
+kubectl edit svc nginx-deployment
+
+//修改svc 的暴露方式IP（clusterip）type类型为NodePort
+kubectl edit svc nginx-deployment 
+//获取端口 (可以看到暴露的端口)
+kubectl get svc
+//查看暴露的端口可以通过 外网访问这个端口
+netstat -anpt | grep :端口号
+
+
+//k8s中的资源
+集群资源分类
+    名称空间级别:仅在此名称空间内起作用
+    集群级别      ：role
+    元数据级别   ：HPA
+资源清单 yaml格式文件
+创建资源文件
+touch pod.yum
+//编辑资源文件
+apiVersion : v1
+kind : Pod
+metadata:
+  name: myapp-pod
+  labels:
+    app: myapp
+    version : v1
+spec :
+ containers :
+   - name : app-nginx
+     image: nginx:latest
+
+//加入资源文件
+kubectl apply -f pod.yaml 
+//报错
+//查看报错信息
+kubectl describe pod myapp-pod
+//查看容器日志（myapp-pod） pod名称  -c 全部（test）容器名称
+kubectl log myapp-pod -c test  
+
+//create创建pod
+kubectl create -f pod.yaml 
+//查看pod详细信息
+kubectl get pod -o wide
+
+//pod生命周期
+svc---》etcd---》cri---》pod创建（1.初始化文件 2.运行服务start开始 一段时间后readiness(是否可以运行准备就绪检测成功显示runing readly)  liveness(服务可用检测防止僵尸进程)  stop结束 ）
+
+1》initc 使用（保证pod的执行顺序）
+创建资源清单
+vim init-pod.yaml
+apiVersion: v1 
+kind: Pod 
+metadata: 
+ name: myapp-pod 
+ labels: app: myapp 
+spec: 
+ containers: 
+ - name: myapp-container 
+   image: busybox 
+   command: ['sh', '-c', 'echo The app is running! && sleep 3600'] #输出The app is running!后休眠6分钟
+ initContainers: 
+ - name: init-myservice 
+    image: busybox 
+    command: ['sh', '-c', 'until nslookup myservice; do echo waiting for myservice; sleep 2; done;'] #检测myservice运行状态未运行输出waiting for myservice 停留2秒，运行后退出
+ - name: init-mydb 
+    image: busybox 
+    command: ['sh', '-c', 'until nslookup mydb; do echo waiting for mydb; sleep 2; done;']#检测mydb;运行状态未运行输出waiting for myservice 停留2秒，运行后退出
+//根据资源清单创建pod运行
+kubectl create -f ini-pod.yaml
+//如果存在pod清理pod
+kubectl delete deployment --all #清理所有deployment
+kubectl delete pod --all #清理所有pod
+kubectl delete svc nginx-deployment #清理svc nginx-deployment
+kubectl describe pod myapp-pod #查看myapp-pod详细信息
+kubectl log myapp-pod -c init-myservice #查看myapp-pod中的容器 init-myservice的日志
+//创建svc资源清单
+vim myservice.yaml
+kind: Service
+apiVersion: v1 
+metadata: 
+  name: myservice 
+spec: 
+  ports: 
+  - protocol: TCP  
+    port: 80
+    targetPort: 9376
+//创建myservice服务
+kubectl create -f myservice.yaml
+//检测服务状态
+kubectl get pod -o wide #第一个initc正常启动
+//创建mydb.yaml
+kind: Service 
+apiVersion: v1 
+metadata: 
+  name: mydb 
+spec: 
+  ports: 
+   - protocol: TCP
+     port: 80 
+     targetPort: 9377
+
+kubectl create -f mydb.yaml #创建svc
+
+kubectl get pod -o wide #查看pod执行状态
+
+#探针由kubelet 对容器执行的定期诊断 能判断上一个服务容器是否执行 
+#就绪检测
+vim read.yaml
+apiVersion: v1 
+kind: Pod 
+metadata: 
+ name: readiness-httpget-pod 
+ namespace: default 
+spec: 
+ containers: 
+ - name: readiness-httpget-container
+   image: nginx
+   imagePullPolicy: IfNotPresent #图像拉去策略不存在去网上拉取
+   readinessProbe: #准备情况探针 就绪检测
+      httpGet: 
+          port: 80 
+          path: /index1.html 
+      initialDelaySeconds: 1  #延迟时间
+      periodSeconds: 3 #周期时间
+kubectl create -f read.yaml
+#进入交互模式修改pod
+ #pod中只有一个容器
+kubectl exec readiness-httpget-pod -it -- /bin/sh
+//将数据写入index1.html方便探针发现
+echo "123" >> index1.html
+
+#存活探针（每隔60秒后重启）
+vim live-exec.yaml
+apiVersion: v1 
+kind: Pod 
+metadata: 
+  name: liveness-exec-pod 
+  namespace: default 
+spec: 
+  containers: 
+  - name: liveness-exec-container 
+    image: busybox 
+    imagePullPolicy: IfNotPresent #设置为IfNotPresent 就是lateas也不会从远程下载
+    command: ["/bin/sh","-c","touch /tmp/live ; sleep 60; rm -rf /tmp/live; sleep 3600"] #创建一个文件60秒后删除后休眠6分钟
+    livenessProbe: 
+       exec: 
+           command: ["test","-e","/tmp/live"] #检测文件test是否存在    因为文件被删除就会重启
+       initialDelaySeconds: 1 #延时一秒
+       periodSeconds: 3       #3秒执行一次
+
+kubectl create -f live-exec.yaml
+kubectl get pod -w #监测pod
+
+#存活检测 通过定时请求html形式进行
+apiVersion: v1 
+kind: Pod 
+metadata: 
+   name: liveness-httpget-pod 
+   namespace: default 
+spec:
+  containers: 
+  - name: liveness-httpget-container 
+    image: nginx 
+    imagePullPolicy: IfNotPresent 
+    ports: 
+    - name: http 
+      containerPort: 80
+    livenessProbe: 
+         httpGet: 
+            port: http 
+            path: /index.html 
+         initialDelaySeconds: 1 
+         periodSeconds: 3 
+         timeoutSeconds: 10
+kubectl create -f liveness-httpget.yaml  #创建pod
+kubectl get pod -o wide #查看运行详情
+//删除nginx的index.html
+kubectl exec liveness-httpget-pod -it /bin/bash
+rm -rf /usr/share/nginx/html/index.html
+kubectl get pod -o wide #查看运行详情
+RESTARTS 重启次数会跟新变多
+
+#tcp存活探针检测机制
+
+vim probe-tcp
+apiVersion: v1 
+kind: Pod 
+metadata: 
+   name: probe-tcp 
+spec: 
+   containers: 
+   - name: nginx 
+     image: nginx 
+     livenessProbe: 
+         initialDelaySeconds: 5 
+         timeoutSeconds: 1 #每隔一秒检测
+         tcpSocket: 
+           port: 8080
+         periodSeconds:3 #周期
+//创建
+kubectl create -f probe-tcp.yaml
+
+#运行检测 生命检测 双检测
+vim read-live-http.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+   name: liveness-httpget-pod
+   namespace: default
+spec:
+  containers:
+  - name: liveness-httpget-container
+    image: nginx
+    imagePullPolicy: IfNotPresent
+    ports:
+    - name: http
+      containerPort: 80
+    readinessProbe: #准备情况探针 就绪检测
+      httpGet:
+          port: 80
+          path: /index1.html
+      initialDelaySeconds: 1  #延迟时间
+      periodSeconds: 3 #周期时间
+    livenessProbe: #存活检测
+         httpGet:
+            port: http
+            path: /index.html
+         initialDelaySeconds: 1
+//到pod里添加index1.html 查看状态
+kubectl exec liveness-httpget-pod -it -- /bin/bash
+cd usr/share/nginx/html
+touch index1.html
+echo "helloworld" >> index1.html 
+//存活检测影响restarts状态  就绪检测影响ready
+///////
+启动退出动作
+apiVersion: v1 
+kind: Pod 
+metadata: 
+  name: lifecycle-demo 
+spec: 
+  containers: 
+  - name: lifecycle-demo-container 
+    image: nginx
+    lifecycle: #定义启动停止 
+      postStart:  #启动后执行
+        exec: command: ["/bin/sh", "-c", "echo Hello from the postStart handler > /usr/share/message"] 
+      preStop:  #结束后执行
+        exec:
+           command: ["/bin/sh", "-c", "echo Hello from the poststop handler > /usr/share/message"]
+
+》》总结
+pod 分类
+  自主式pod ：pod退出了，此类pod不会被创建
+  控制器管理的pod ：在控制器的生命周期里，始终要维持pod的副本数目
+
+//////////////////////////////////////////////////////////////////////////////////////////
+》》 控制器
+（命令式编程（带过程）， 声明式编程（直接得到结果）） 
+1. replicaSet   rs 维持pod副本数目 命令式编程（带过程）     create (优）  apply
+2.deployment   声明式编程                                               apply(优）     create   （滚动跟新、回滚给、扩容）
+//关系
+rs deployment关系  deployment (创建)->rs (创建)->pod
+
+3.daemonSet
+
+4.job     执行pod达到条件退出
+
+5.cronjob 定时执行pod *****（分时日月周） 
+
+6.StatefulSet 有状态服务  （不适合mysql，适合mongodb）持久化存储的有状态服务（数据在持久化存储卷中）   有序的pod服务（创建或删除）   
+
+7.hpa  根据资源控制rs
+
+//rs 使用
+kubectl explain rs #查看rs  模板信息
+vim rs.yaml
+apiVersion: extensions/v1beta1 
+kind: ReplicaSet #类型rs
+metadata: #元数据
+  name: frontend  #名称
+spec:  #详细信息
+  replicas: 3 #副本3个
+  selector: #选择标签
+    matchLabels: #匹配
+      tier: frontend #tier key ，frontend value
+  template: #模板 创建一个pod
+    metadata:
+      labels: 
+        tier: frontend #唯一匹配
+    spec: 
+      containers: 
+      - name: myapp 
+        image: nginx
+        env: 
+        - name: GET_HOSTS_FROM 
+          value: dns 
+        ports: 
+        - containerPort: 80
+ //查看创建的标签
+ kubectl get pod --show-labels
+//对标签进行更改
+kubectl label pod  frontend-b4mwh tier=frontend1 --overwrite=True
+#发现rs副本监测以标签为主
+
+//deployment使用
+vim deployment.yaml
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: nginx-deployment
+spec:
+  replicas: 3
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      containers:
+      - name: nginxmy
+        image: nginx
+        ports:
+        - containerPort: 800
+ kubectl apply -f deployment.yaml --record #启动 --record 记录启动信息
+//扩容到10个
+kubectl scale deployment nginx-deployment --replicas 10
+//更新镜像(存在镜像 deployment deployment/nginx-deployment的 nginx 改为 nginx:1.9.1)rs会重置
+kubectl  set image deployment/nginx-deployment nginx=nginx:1.9.1
+//镜像回滚
+kubectl rollout undo deployment/nginx-deployment
+//查看最新跟新状态
+kubectl rollout status deployment/nginx-deployment
+//查看历史跟新状态
+kubectl rollout history deployment/nginx-deployment   #创建加--record 会看到创建记录
+//回滚到一个版本
+kubectl rollout undo deployment/nginx-deployment --to-revision=1
+//通过
+echo $? #返回0更新成功其他失败
+
+//daemonSet
+//使用更具node节点创建
+vim maemon-set.yaml
+apiVersion: apps/v1 
+kind: DaemonSet 
+metadata: 
+  name: deamonset-example 
+  labels: 
+    app: daemonset 
+spec: 
+  selector: 
+    matchLabels: 
+      name: deamonset-example 
+  template: 
+    metadata: 
+      labels: 
+        name: deamonset-example 
+    spec: 
+      containers: 
+      - name: daemonset-example 
+        image: nginx
+kubectl create -f daemon-set.yaml 
+//查看daemonset
+kubectl get daemonset
+
+
+//job
+vim job.yaml
+apiVersion: batch/v1 
+kind: Job 
+metadata: 
+  name: pi 
+spec: 
+  template: 
+    metadata: 
+      name: pi 
+    spec: 
+      containers: 
+      - name: pi 
+        image: perl 
+        command: ["perl", "-Mbignum=bpi", "-wle", "print bpi(2000)"] 
+      restartPolicy: Never #重启方式 Naver永远不重启  OnFailure失败重启
+kubectl create -f job.yaml
+kubectl get job #查看job信息
+kubectl log pi-zffd8 #查看pod日志
+
+//CronJob
+//基于时间管理的pod
+vim cronjob.yaml
+apiVersion: batch/v1beta1 
+kind: CronJob 
+metadata: 
+  name: hello 
+spec: 
+  schedule: "*/1 * * * *" #调度时间 每一分钟执行一次  *分*时*日*月*周
+  jobTemplate: 
+    spec: 
+      template: 
+        spec:
+          containers: 
+          - name: hello 
+            image: busybox 
+            args: 
+            - /bin/sh 
+            - -c 
+            - date; echo Hello from the Kubernetes cluster #输出当前时间
+          restartPolicy: OnFailure #重启策略 不失败不重启
+//创建定时任务job
+ kubectl apply -f cronjob.yaml
+//查看job
+kubectl get cronjob
+
+
+
+//svc相关学习
+clusterIP
+clusterIp主要是每个node节点使用iptables 将发向clusterIP对应数据，转发到kube-proxy中然后kube-proxy自己内部实现负载均衡方法，
+可以查询到这个service下对应pod地址和端口进而把数据发给对应的地址端口
+//创建服务
+vim myapp-deploy.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: myapp-deploy
+  namespace: default
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: myapp
+      release: stabel
+  template:
+      metadata:
+        labels:
+          app: myapp #标签1
+          release: stabel #标签2  方便svc找到对应的服务
+          env: test
+      spec:
+        containers:
+        - name: myapp
+          image: nginx
+          imagePullPolicy: IfNotPresent
+          ports:
+          - name: http
+            containerPort: 80
+//创建svc
+vim myapp-service.yaml
+apiVersion: v1 
+kind: Service 
+metadata: 
+  name: myapp #标签1
+  namespace: default #标签2     标签1标签2 找到对应的deployment
+spec: 
+  type: ClusterIP 
+  selector: 
+    app: myapp 
+    release: stabel 
+  ports: 
+  - name: http 
+    port: 80 
+    targetPort: 80 #pod对应的端口
+kubectl get svc #获取svc
+ipvsadm -Ln #查看ip详细信息
+svc --》pod
+
+
+//Headless Service
+//无头服务创建 ClusterIP值为None创建Headless Service ,这类Service并不会分配Cluster IP，kube-proxy不会处理它们并且平台不会对他们进行负载均衡和路由
+vim myapp-svc-headless.yaml
+apiVersion: v1 
+kind: Service 
+metadata: 
+  name: myapp-headless 
+  namespace: default 
+spec: 
+  selector: 
+    app: myapp 
+  clusterIP: "None" 
+  ports: 
+  - port: 80 
+    targetPort: 80
+ kubectl apply -f myapp-svc-headless.yaml
+//获取svc
+kubectl get svc
+//查看环境变量内的pod
+kubectl get pod -n kube-system -o wide
+//svc解析
+dig -t A myapp-headless.default.svc.cluster.local. @10.244.0.9 
+
+//nodePort 当前物理机上暴露一个端口供外部访问
+vim nodeport-service.yaml
+apiVersion: v1 
+kind: Service 
+metadata: 
+  name: myapp 
+  namespace: default 
+spec: 
+  type: NodePort #暴露方式
+  selector: 
+    app: myapp 
+    release: stabel 
+  ports: 
+  - name: http 
+    port: 80 
+    targetPort: 80
+kubectl apply -f nodeport-service.yaml
+//查看外部访问端口
+kubectl get svc
+//外部访问
+主机ip和端口
+
+//ingress使用 （七层代理可用域名,api的代理方式）
+ingress-nginx解决方案
+nginx是nodeport部署方案
+//下载安装ingress-nginx 代理资源文件
+kubectl apply -f https://kuboard.cn/install-script/v1.18.x/nginx-ingress.yaml
+//docker 安装镜像 （已下载）
+docker load -i ingree.contro.tar
+
+//使用ingress-nginx暴露域名访问配置服务
+vim ingress-test.yaml
+#创建nginx服务
+apiVersion: extensions/v1beta1
+kind: Deployment 
+metadata: 
+  name: nginx-dm 
+spec: 
+  replicas: 2 
+  template: 
+    metadata: 
+      labels: #标签为进行匹配
+        name: nginx 
+      spec: 
+        containers: 
+        - name: nginx 
+          image: wangyanglinux/myapp:v1 
+          imagePullPolicy: IfNotPresent 
+          ports: 
+          - containerPort: 80 
+---
+#为标签为 name: nginx 创建svc
+apiVersion: v1 
+kind: Service 
+metadata: 
+  name: nginx-svc 
+spec: 
+  ports: 
+    - port: 80 
+      targetPort: 80 
+      protocol: TCP 
+  selector: 
+    name: nginx #标签为匹配
+--- 
+#创建ingress为 serviceName: nginx-svc
+apiVersion: extensions/v1beta1 
+kind: Ingress 
+metadata: 
+  name: nginx-test 
+spec: 
+  rules: 
+    - host: www1.atguigu.com 
+      http: 
+        paths: 
+        - path: / 
+          backend: 
+            serviceName: nginx-svc 
+            servicePort: 80
+///////////////////////////////////////////////////////////// 存储方式
+//configMap提供了向容器注入配置信息的机制
+vim game.properties
+enemies=aliens 
+lives=3 
+enemies.cheat=true 
+enemies.cheat.level=noGoodRotten 
+secret.code.passphrase=UUDDLRLRBABAS 
+secret.code.allowed=true 
+secret.code.lives=30
+vim ui.properties
+color.good=purple 
+color.bad=yellow 
+allow.textmode=true 
+how.nice.to.look=fairlyNice
+//将目录或文件存入configmap
+//--from-file指定文件
+kubectl create configmap game-config --from-file=../dir/
+kubectl get cm game-config -o yaml #查看详细信息
+//使用 -from-literal 传递配置信息，可用使用多次 
+kubectl create configmap special-config --from-literal=special.how=very --from- literal=special.type=charm
+//查看
+kubectl get configmaps special-config -o yaml
+vim env.yaml
+apiVersion: v1 
+kind: ConfigMap 
+metadata: 
+  name: env-config 
+  namespace: default 
+data: 
+    log_level: INFO
+//将configmap中envconfig和dirconfig注入到pod中去
+vim pod.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: dapi-test-pod
+spec:
+  containers:
+  - name: test-container
+    image: nginx
+    command: [ "/bin/sh", "-c", "env" ] # 运行命令打印env 
+    env: #另一种导入方式
+    - name: SPECIAL_LEVEL_KEY #键名 
+      valueFrom:
+        configMapKeyRef:
+          name: special-config #configmap名称
+          key: special.how #configmap里的键名将值赋给 SPECIAL_LEVEL_KEY
+    - name: SPECIAL_TYPE_KEY
+      valueFrom:
+        configMapKeyRef:
+         name: special-config
+         key: special.type
+    envFrom: #env从哪里来 configmap的一种导入方式
+     - configMapRef:
+         name: env-config
+  restartPolicy: Never
+//数据卷中使用 将数据项挂载在容器里
+vim 111.yaml
+apiVersion: v1 
+kind: Pod 
+metadata: 
+  name: dapi-test-pod 
+spec: 
+  containers: 
+  - name: test-container 
+    image: nginx
+    command: [ "/bin/sh", "-c", "cat /etc/config/special.how" ] 
+    volumeMounts: 
+    - name: config-volume 
+      mountPath: /etc/config 
+  volumes: 
+  - name: config-volume
+    configMap: 
+      name: special-config
+  restartPolicy: Never
+
+//configmap的热更
+//创建configmap 并在容器中挂载
+vim host.yaml
+apiVersion: v1 
+kind: ConfigMap 
+metadata: 
+  name: log-config 
+  namespace: default 
+data: 
+  log_level: INFO 
+--- 
+apiVersion: extensions/v1beta1 
+kind: Deployment 
+metadata: 
+  name: my-nginx 
+spec: 
+  replicas: 1 
+  template:
+    metadata: 
+      labels: 
+        run: my-nginx 
+    spec: 
+      containers: 
+      - name: my-nginx 
+        image: nginx
+        ports: 
+        - containerPort: 80 
+        volumeMounts: 
+        - name: config-volume 
+          mountPath: /etc/config 
+      volumes: 
+      - name: config-volume 
+        configMap: 
+          name: log-config
+kubectl apply -f host.yaml
+//查看容器中挂载的值
+kubectl get pod
+kubectl exec my-nginx-6844885d5f-qh48d -it -- cat /etc/config/log_level
+//实现热跟新
+//通过修改configmap里的值来实现
+kubectl edit configmap log-config #去文件里修改级别为debug
+//查看挂载文件
+kubectl exec my-nginx-6844885d5f-qh48d -it -- cat /etc/config/log_level #值变为debug
+
+//secret使用
+// 类型的数据是一个 map 类型，要求 value 是 base64 编码格式 使用时会解密
+vim sec.yaml
+apiVersion: v1 
+kind: Secret 
+metadata: 
+  name: mysecret 
+type: Opaque 
+data: 
+  password: MWYyZDFlMmU2N2Rm 
+  username: YWRtaW4=
+kubectl apply -f sec.yaml
+kubectl get secret
+//将secret挂载到volume中
+vim sec-v.yaml
+apiVersion: v1 
+kind: Pod 
+metadata: 
+  labels: 
+    name: seret-test 
+  name: seret-test 
+spec: 
+  volumes: 
+  - name: secrets 
+    secret: 
+      secretName: mysecret 
+  containers: 
+  - image: nginx 
+    name: db 
+    volumeMounts: 
+    - name: secrets 
+      mountPath: "/etc/secrets" 
+      readOnly: true
+Kubectl apply -f sec-v.yaml
+kubectl exec seret-test -it -- /bin/bash
+//查看载入信息
+cd /etc/secrets
+ls
+//secrets 保存docker认证信息
+ //总结configmap存储一些配置信息  secrets存储一些敏感信息
+
+volume使用（持久化操作）
+ntpdate ntp1.aliyun.com 同步阿里云时间
+//emptyDir 空卷使用pod中的容器可以读取和写入emptyDir卷中的相同文件，当从节点中删除pod时，emptydir数据将永久删除
+//暂存空间
+//Web服务器容器提供数据时，保存内容管理器容器提取的文件
+vim em.yaml
+apiVersion: v1 
+kind: Pod 
+metadata: 
+  name: test-pd 
+spec: 
+  containers: 
+  - image: nginx
+    name: test-container 
+    volumeMounts: 
+    - mountPath: /cache 
+      name: cache-volume 
+  volumes: 
+  - name: cache-volume 
+    emptyDir: {}
+
+//hostPath 将主机节点的文件系统中的文件或目录挂载到集群中
+vim hostpath.yaml
+apiVersion: v1 
+kind: Pod 
+metadata: 
+  name: test-pd 
+spec: 
+  containers: 
+  - image: nginx 
+    name: test-container 
+    volumeMounts: 
+    - mountPath: /test-pd 
+      name: test-volume 
+  volumes: 
+  - name: test-volume 
+    hostPath: 
+     # directory location on host 
+     path: /data #位置
+     # this field is optional 
+     type: Directory #文件类型
+//创建文件夹/data在node节点和master节点
+mkdir /data
+//进入容器修改内容
+kubectl exec -it test-pd -it -- /bin/bash
+//找到配置的文件修改内容
+cd /test-pd/
+date > index.html
+
+//pv，pvc的使用
+//pv是vloume 插件
+//pv独立于pod生命周期之上
+//pv和pvc是1 1 对应的
+nfs持久卷使用
+//在master节点上
+//1.创建nfs 文件夹
+mkdir nfs
+//2.安装nfs-common nfs-utils rpcbind
+yum install -y nfs-common nfs-utils rpcbind
+//3.修改nfs文件夹权限
+chmod 777 nfs/
+//4.给nfs添加到nfsnobody组里
+chown nfsnobody nfs/
+//5.添加/etc/exports
+vim /etc/exports
+/root/k8s/nfs *(rw,no_root_squash,no_all_squash,sync) #文件夹配置信息权限
+//6.启动 rpcbind nfs
+systemctl start rpcbind
+systemctl start nfs
+//在node节点上
+//1.创建test文件夹在跟目录
+mkdir /test
+cd /test
+//2.安装 nfs-utils rpcbind
+yum install -y  nfs-utils rpcbind
+//3.访问共享目录
+showmount -e 192.168.16.100
+//4.将test挂载到共享目录上
+mount -t nfs 192.168.16.100:/root/k8s/nfs /test/
+//解除挂载 
+umount  /test/
+//创建pv的资源清单
+mkdir pv 
+cd pv 
+vim pv.yaml
+apiVersion: v1 
+kind: PersistentVolume 
+metadata: 
+  name: pv0003 
+spec: 
+  capacity: 
+    storage: 2Gi  #卷的大小为2g
+  volumeMode: Filesystem #持久卷类型文件类型
+  accessModes: #访问策略
+   - ReadWriteOnce #读 写 只能被一个节点挂载 必须和pvc一致
+  persistentVolumeReclaimPolicy:  Retain #回收策略 Recycle回收 retain手动回收 delete删除
+  storageClassName: slow  #存储类型名称 划分存储的指标 和pvc有关 “slow”“nfs”   必须和pvc一致
+  mountOptions: 
+   - hard 
+   - nfsvers=4.1 
+  nfs: #pv创建类型
+    path: /root/k8s/nfs  #挂载文件夹
+    server: 192.168.16.100 #访问IP
+kubectl create -f pv.yaml 
+//查看pv
+kubectl get pv
+//创建pvc
+apiVersion: v1  #无头服务创建StatefulSet 前必须先新建无头服务
+kind: Service 
+metadata: 
+  name: nginx 
+  labels: 
+    app: nginx 
+spec: 
+  ports: 
+  - port: 80 
+    name: web 
+  clusterIP: None 
+  selector: 
+    app: nginx
+--- 
+apiVersion: apps/v1 
+kind: StatefulSet  #控制器StatefulSet为
+metadata: 
+  name: web 
+spec: 
+  selector: 
+    matchLabels: 
+      app: nginx 
+  serviceName: "nginx" 
+  replicas: 3 
+  template: 
+    metadata: 
+      labels: 
+        app: nginx 
+    spec: 
+      containers: 
+      - name: nginx-test 
+        image: nginx
+        ports: 
+        - containerPort: 80 
+          name: web 
+        volumeMounts: 
+        - name: www 
+          mountPath: /usr/share/nginx/html 
+  volumeClaimTemplates: 
+  - metadata: 
+      name: www 
+    spec: 
+      accessModes: [ "ReadWriteOnce" ] #必须和pv一致
+      storageClassName: "slow" #必须和pv一致
+      resources:
+          requests: 
+            storage: 1Gi
+kubectl get pvc
+kubectl get pod
+kubectl get statefulset
+kubectl get svc
+
+//对于已经使用的pv进行回收
+//1.删除原来共享文件内的数据
+//2.修改pv节点数据
+kubectl edit pv pv名称
+删除claimRef节点所有信息就可以
+
+////////////////////////////////////////////////////////////
+//调度器
+scheduler 调度pod到那个节点
+//node 和 pod
+//亲和力节点亲和力
+affinity: #亲和力
+  nodeAffinity: #节点亲和力
+//硬策略 没有就不创建 requiredDuringSchedulingIgnoredDuringExecution:
+//软策略  没有也创建 preferredDuringSchedulingIgnoredDuringExecution:
+污点
+kubectl taint 设置 污点
+master节点存在污点所以pod不会在master节点运行
+
+//安全机制
+主要围绕apiservices
+//安全证书
+cd ~/.kube/
+cat config

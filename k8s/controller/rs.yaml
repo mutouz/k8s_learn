@@ -1,0 +1,22 @@
+apiVersion: extensions/v1beta1 
+kind: ReplicaSet #类型rs
+metadata: #元数据
+  name: frontend  #名称
+spec:  #详细信息
+  replicas: 3 #副本3个
+  selector: #选择标签
+    matchLabels: #匹配
+      tier: frontend #tier key ，frontend value
+  template: #模板 创建一个pod
+    metadata:
+      labels: 
+        tier: frontend #唯一匹配
+    spec: 
+      containers: 
+      - name: myapp 
+        image: nginx
+        env: 
+        - name: GET_HOSTS_FROM 
+          value: dns 
+        ports: 
+        - containerPort: 80

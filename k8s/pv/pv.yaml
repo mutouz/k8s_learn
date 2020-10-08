@@ -1,0 +1,19 @@
+apiVersion: v1 
+kind: PersistentVolume 
+metadata: 
+  name: pv0003 
+spec: 
+  capacity: 
+    storage: 2Gi  #卷的大小为2g
+  volumeMode: Filesystem #持久卷类型文件类型
+  accessModes: #访问策略
+   - ReadWriteOnce #读 写 只能被一个节点挂载
+  persistentVolumeReclaimPolicy:  Retain #回收策略 Recycle回收 retain手动回收 delete删除
+  storageClassName: slow  #存储类型名称 划分存储的指标 和pvc有关
+  mountOptions: 
+   - hard 
+   - nfsvers=4.1 
+  nfs: #pv创建类型
+    path: /root/k8s/nfs  #挂载文件夹
+    server: 192.168.16.100 #访问IP
+

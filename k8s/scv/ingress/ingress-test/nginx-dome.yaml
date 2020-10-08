@@ -1,0 +1,18 @@
+apiVersion: extensions/v1beta1
+kind: Deployment 
+metadata: 
+  name: nginx-dm 
+spec: 
+  replicas: 2 
+  template: 
+    metadata: 
+      labels: #标签为进行匹配
+        name: nginx 
+    spec: 
+        containers: 
+        - name: nginx-app 
+          image: nginx 
+          imagePullPolicy: IfNotPresent 
+          ports: 
+          - containerPort: 80 
+

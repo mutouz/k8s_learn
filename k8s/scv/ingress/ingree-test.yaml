@@ -1,0 +1,45 @@
+apiVersion: extensions/v1beta1
+kind: Deployment 
+metadata: 
+  name: nginx-dm 
+spec: 
+  replicas: 2 
+  template: 
+    metadata: 
+      labels: #标签为进行匹配
+        name: nginx 
+    spec: 
+        containers: 
+        - name: nginx-app 
+          image: nginx 
+          imagePullPolicy: IfNotPresent 
+          ports: 
+          - containerPort: 80 
+---
+#为标签为 name: nginx 创建svc
+apiVersion: v1 
+kind: Service 
+metadata: 
+  name: nginx-svc 
+spec: 
+  ports: 
+    - port: 80 
+      targetPort: 80 
+      protocol: TCP 
+  selector: 
+    name: nginx #标签为匹配
+--- 
+#创建ingress为 serviceName: nginx-svc
+apiVersion: extensions/v1beta1 
+kind: Ingress 
+metadata: 
+  name: nginx-test 
+spec: 
+  rules: 
+    - host: www1.atguigu.com 
+      http: 
+        paths: 
+        - path: / 
+          backend: 
+            serviceName: nginx-svc 
+            servicePort: 80

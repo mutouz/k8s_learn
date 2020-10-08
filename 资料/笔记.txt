@@ -1,0 +1,52 @@
+
+master节点
+kubectl是Kubernetes集群的命令行工具 webui页面
+
+scheduler:调度器  调度任务任务交给apiserver交给etcd
+rc:控制器  交给apiserver创建pod删除pod
+apiserver 调度中心处理中心
+etcd:数据库存储持久化方案  可信赖的分布式键值对存储服务 v2版写入内存中  v3版卷的持久化操作 httpserver http cs服务
+
+node执行者
+kubelet: crl 容器 运行环境 接口  和docker交互创建对应容器 维持pod生命周期
+kube proxy:操作防火墙维持pod映射pod通信
+pod:启动第一个容器 pause   然后有很多容器 共享pause网络栈共享存储卷
+////////////////////////////////////////////
+控制器管理的pod 
+控制器
+rc 确保容器应用的副本数始终保持在用户定义的副本数建议用rs代替rc （rs支持集合式的selector（选择器）打标签批量操作）
+rs 和deployment一起使用（deployment支持滚动更新）
+
+hpa 扩容 仅试用deployment rs 支持pod 用户自定义的metric扩容
+
+StatefulSet解决有状态服务的问题  deployment rs 是为无状态服务设计的
+稳定的存储
+稳定的标识
+有序部署
+有序回收
+
+DamonSet （在每个pode上创建副本处理）
+运行集群存储daemon
+在每个node上运行日志收集daemon
+在每个node上监控daemon
+
+ job批处理任务保证批处理任务的一个或多个pod成功结束
+
+/////////////////////////////////////////////
+
+服务发现
+/////////////////////////
+网络模型
+扁平化网络空间
+pod之间通信Overlay Network  
+pod和service各节点的Iptables规则lvs
+flannel 网络规划服务，不同节点主机创建的docker容器具有全集群唯一虚拟ip，在ip之间建立虚拟覆盖网络（Overlay Network  ）
+通过将数据包原封不动传递到目标容器内
+
+同一服务器通过网桥
+跨主机 通过分装3层udp传输
+
+flannel 和etcd  关联 存储管理flannel可分配的ip地址段资源
+监控etcd每个pod地址，建立pod节点路由表
+
+
